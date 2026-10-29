@@ -89,9 +89,12 @@ The tool's after-submit page doesn't prove the version landed; a second
 
 ## Open questions
 
-- `MOVE_LIMIT` (50 mg) is a guess. Real recordings carry `motion` every
-  second, and `tools/beats.py` prints the movement around each gap: tune
-  the limit to where gaps start.
+- `MOVE_LIMIT` (50 mg) held up in the first 0.2.0 test (2026-10-29, in
+  `~/src/watch-files`): still, the wrist read 13–24 mg; movement read
+  84–786 mg. Only some gaps come with movement, though: two of that test's
+  five had none. About 5 s more went missing as single dropped beats, each
+  under the gap threshold (a beat plus `GAP_SLACK`), because each batch's
+  shortfall is forgotten once it passes the check.
 
 - The wrist sensor's beat intervals arrive on the Venu 4 (confirmed with
   0.1.1, once the onboard sensor was enabled). Still open: whether
