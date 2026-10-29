@@ -5,6 +5,14 @@ own tools (Health Snapshot, HRV Status) and the store apps tried so far only
 save a final number; this saves the beats themselves in the activity's FIT
 file, so RMSSD, SDNN or anything else can be worked out later.
 
+| Ready | Recording, halfway | Results |
+| --- | --- | --- |
+| ![Ready](screenshots/ready.png) | ![Recording](screenshots/recording.png) | ![Results](screenshots/results.png) |
+
+*From the simulator's self-test, which feeds made-up beats with a fast
+breathing rhythm through a full five-minute measurement. The two grey dots
+near 12 o'clock are its deliberate artifacts.*
+
 ## Using it
 
 1. Put the HRM600 on and sit down. Open Beat Log; the screen shows heart rate
