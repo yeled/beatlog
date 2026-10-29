@@ -5,6 +5,7 @@ import Toybox.WatchUi;
 class BeatLogApp extends Application.AppBase {
 
     private var _test = null;
+    private var _selfTest = null;
 
     function initialize() {
         AppBase.initialize();
@@ -15,6 +16,16 @@ class BeatLogApp extends Application.AppBase {
     function onStart(state) {
         _test = new BeatTest();
         _test.startSensors();
+        startSelfTest();
+    }
+
+    (:selftest)
+    hidden function startSelfTest() {
+        _selfTest = new SelfTest(_test);
+    }
+
+    (:notselftest)
+    hidden function startSelfTest() {
     }
 
     // Leaving the app mid-test keeps what was recorded rather than losing it.

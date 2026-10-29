@@ -1,0 +1,2 @@
+# Layered over monkey.jungle by scripts/build.sh selftest
+base.excludeAnnotations = notselftest

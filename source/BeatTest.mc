@@ -21,7 +21,8 @@ const PHASE_DONE = 3;
 // of the newest beat. The watch writes records on its own schedule, so a
 // beat can appear in several records and a record can be skipped; the
 // numbering lets a reader place each beat exactly once. 16 beats cover at
-// least 4.8 s even at 200 bpm.
+// least 4.8 s even at 200 bpm. Laps carry the window too, because beats
+// from the last second before a lap closes may miss every record.
 const WINDOW = 16;
 const RR_INVALID = 0xFFFF;
 
@@ -34,12 +35,16 @@ const FIELD_SDNN = 4;
 const FIELD_MEAN_HR = 5;
 const FIELD_BEATS = 6;
 const FIELD_ARTIFACTS = 7;
+const FIELD_LAP_RR = 8;
 
 // One HRV test: a settling lap, a measurement lap, and the beat intervals
 // from both written into the activity's FIT file.
 class BeatTest {
 
     var phase = PHASE_READY;
+    var settleSeconds = SETTLE_SECONDS;
+    var measureSeconds = MEASURE_SECONDS;
+    var synthetic = false;  // the self-test feeds beats; ignore the sensor's
     var heartRate = null;   // from the once-a-second sensor events
     var lastRr = null;      // newest beat interval, recording or not
     var stats = null;       // measurement lap only
@@ -53,6 +58,7 @@ class BeatTest {
     hidden var _rrField = null;
     hidden var _rrBeatField = null;
     hidden var _lastBeatField = null;
+    hidden var _lapRrField = null;
     hidden var _rmssdField = null;
     hidden var _sdnnField = null;
     hidden var _meanHrField = null;
@@ -86,10 +92,13 @@ class BeatTest {
 
     function onSensorData(data as Sensor.SensorData) as Void {
         var hr = data.heartRateData;
-        if (hr == null || hr.heartBeatIntervals == null) {
+        if (synthetic || hr == null || hr.heartBeatIntervals == null) {
             return;
         }
-        var intervals = hr.heartBeatIntervals;
+        addBeats(hr.heartBeatIntervals);
+    }
+
+    function addBeats(intervals) {
         for (var i = 0; i < intervals.size(); i++) {
             addBeat(intervals[i]);
         }
@@ -129,6 +138,8 @@ class BeatTest {
             { :mesgType => FitContributor.MESG_TYPE_RECORD });
         _lastBeatField = _session.createField("last_beat", FIELD_LAST_BEAT, FitContributor.DATA_TYPE_UINT32,
             { :mesgType => FitContributor.MESG_TYPE_LAP });
+        _lapRrField = _session.createField("lap_rr", FIELD_LAP_RR, FitContributor.DATA_TYPE_UINT16,
+            { :count => WINDOW, :mesgType => FitContributor.MESG_TYPE_LAP, :units => "ms" });
         _rmssdField = _session.createField("rmssd", FIELD_RMSSD, FitContributor.DATA_TYPE_FLOAT,
             { :mesgType => FitContributor.MESG_TYPE_SESSION, :units => "ms" });
         _sdnnField = _session.createField("sdnn", FIELD_SDNN, FitContributor.DATA_TYPE_FLOAT,
@@ -168,18 +179,17 @@ class BeatTest {
 
     // Seconds left in the settling or measuring phase.
     function remaining() {
-        var length = phase == PHASE_SETTLING ? SETTLE_SECONDS : MEASURE_SECONDS;
+        var length = phase == PHASE_SETTLING ? settleSeconds : measureSeconds;
         var left = length - (System.getTimer() - _phaseStart) / 1000;
         return left > 0 ? left : 0;
     }
 
-    // Closes the settling lap; the measurement is the second lap. Each lap
-    // records the number of its last beat so a reader can split the beats.
+    // Closes the settling lap; the measurement is the second lap.
     function beginMeasuring() {
         if (phase != PHASE_SETTLING) {
             return;
         }
-        _lastBeatField.setData(_beat);
+        setLapFields();
         _session.addLap();
         enterPhase(PHASE_MEASURING);
         vibrate();
@@ -190,7 +200,7 @@ class BeatTest {
             return;
         }
         stopTimer();
-        _lastBeatField.setData(_beat);
+        setLapFields();
         setIfKnown(_rmssdField, stats.rmssd());
         setIfKnown(_sdnnField, stats.sdnn());
         setIfKnown(_meanHrField, stats.meanHr());
@@ -229,6 +239,13 @@ class BeatTest {
             _timer.stop();
             _timer = null;
         }
+    }
+
+    // Each lap records the number of its last beat, so a reader can split
+    // the beats by phase, and the newest beats, so none are lost at the end.
+    hidden function setLapFields() {
+        _lastBeatField.setData(_beat);
+        _lapRrField.setData(_window);
     }
 
     hidden function setIfKnown(field, value) {
