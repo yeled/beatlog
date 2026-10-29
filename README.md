@@ -19,9 +19,10 @@ file, so RMSSD, SDNN or anything else can be worked out later.
 
 While it records, the beats are drawn around the edge of the screen: each
 one at its moment in the five minutes, clockwise from 12 o'clock, further
-out for a slower beat and further in for a faster one, so breathing shows up
-as waves. Artifacts are grey dots. The ring closes when the timer runs out
-and stays on the results screen; ending early leaves it open.
+out for a slower beat and further in for a faster one (against the settling
+minute's average), so breathing shows up as waves. Artifacts are grey dots.
+The ring closes when the timer runs out and stays on the results screen;
+ending early leaves it open.
 
 The screen's numbers drop beats outside 300–2000 ms or more than 20% away
 from the previous good beat. The FIT file keeps every raw beat.

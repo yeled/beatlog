@@ -44,7 +44,7 @@ class BeatLogView extends WatchUi.View {
             hint = "START ends early";
         }
         if (phase != PHASE_READY) {
-            _test.ring.draw(dc, _test.measureSeconds * 1000, phase == PHASE_MEASURING);
+            _test.ring.draw(dc, phase == PHASE_MEASURING);
         }
 
         text(dc, cx, h * 0.20, Graphics.FONT_SMALL, titleColor, title);
@@ -74,7 +74,7 @@ class BeatLogView extends WatchUi.View {
         var rmssd = stats.rmssd();
         var sdnn = stats.sdnn();
         var meanHr = stats.meanHr();
-        _test.ring.draw(dc, _test.measureSeconds * 1000, false);
+        _test.ring.draw(dc, false);
 
         text(dc, cx, h * 0.21, Graphics.FONT_SMALL, GREY, "RMSSD");
         text(dc, cx, h * 0.37, Graphics.FONT_NUMBER_HOT, Graphics.COLOR_WHITE,

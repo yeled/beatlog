@@ -55,6 +55,8 @@ class BeatTest {
     hidden var _phaseStart = 0;
     hidden var _window = null;
     hidden var _beat = 0;   // beats since the recording started
+    hidden var _settleSum = 0;   // the ring's reference: settling's average beat
+    hidden var _settleCount = 0;
 
     hidden var _rrField = null;
     hidden var _rrBeatField = null;
@@ -68,7 +70,7 @@ class BeatTest {
 
     function initialize() {
         stats = new RrStats();
-        ring = new BeatRing();
+        ring = new BeatRing(measureSeconds * 1000);
     }
 
     // SENSOR_HEARTRATE turns on a paired strap; beat intervals then come
@@ -123,6 +125,9 @@ class BeatTest {
         _window[WINDOW - 1] = rr < RR_INVALID ? rr : RR_INVALID - 1;
         if (phase == PHASE_MEASURING) {
             ring.add(rr, stats.add(rr));
+        } else if (rr >= 300 && rr <= 2000) {
+            _settleSum += rr;
+            _settleCount++;
         }
     }
 
@@ -159,7 +164,9 @@ class BeatTest {
         }
         _beat = 0;
         stats = new RrStats();
-        ring = new BeatRing();
+        ring = new BeatRing(measureSeconds * 1000);
+        _settleSum = 0;
+        _settleCount = 0;
         _rrField.setData(_window);
         _rrBeatField.setData(0);
 
@@ -194,6 +201,9 @@ class BeatTest {
         }
         setLapFields();
         _session.addLap();
+        if (_settleCount > 0) {
+            ring.reference = _settleSum / _settleCount;
+        }
         enterPhase(PHASE_MEASURING);
         vibrate();
     }
