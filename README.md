@@ -19,7 +19,9 @@ near 12 o'clock are its deliberate artifacts.*
    and the latest beat interval, so you can see beats are arriving.
 2. Press START. One minute of "Sit still" settles your heart rate, then five
    minutes of recording. The watch vibrates at each change. START skips the
-   settling, or ends the recording early. BACK (or swiping right) asks
+   settling, at a cost: heart rate still coming down after moving about
+   reads as variability, which mostly inflates SDNN. START also ends the
+   recording early. BACK (or swiping right) asks
    whether to discard the test.
 3. The results screen shows RMSSD (and its natural log), SDNN, mean HR, how
    many beats and artifacts were counted, and in yellow how long the sensor

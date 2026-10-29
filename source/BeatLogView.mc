@@ -33,10 +33,13 @@ class BeatLogView extends WatchUi.View {
         var titleColor = Graphics.COLOR_WHITE;
         var big = _test.heartRate != null ? _test.heartRate.format("%d") : "--";
         var hint = "START to begin";
+        var why = null;
         if (phase == PHASE_SETTLING) {
+            // Heart rate still falling after moving about reads as variability
             title = "Sit still";
             big = clock(_test.remaining());
-            hint = "START skips ahead";
+            why = "Letting your heart rate settle";
+            hint = "START skips, less accurate";
         } else if (phase == PHASE_MEASURING) {
             title = "Recording";
             titleColor = Graphics.COLOR_RED;
@@ -70,6 +73,8 @@ class BeatLogView extends WatchUi.View {
             var line = "RMSSD " + (rmssd != null ? rmssd.format("%.0f") : "--")
                 + "   " + _test.stats.count + " beats";
             text(dc, cx, h * 0.70, Graphics.FONT_TINY, Graphics.COLOR_WHITE, line);
+        } else if (why != null) {
+            text(dc, cx, h * 0.70, Graphics.FONT_XTINY, GREY, why);
         }
         text(dc, cx, h * 0.79, hintFont, hintColor, hint);
     }
