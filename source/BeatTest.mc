@@ -27,17 +27,20 @@ const PHASE_DONE = 3;
 // recorded the same way: each record carries the total time of the beats
 // the sensor dropped so far, and the number of the last beat before the
 // latest gap. Each record also carries the running total of every batch's
-// shortfall, gap or not, so a reader can check the gap threshold.
+// shortfall, gap or not, so a reader can check the gap rule.
 const WINDOW = 16;
 const RR_INVALID = 0xFFFF;
 
 // The wrist sensor drops beats it can't place, as when the wrist moves:
-// they are simply missing, not merged into a long interval. On the watch a
-// batch of beats accounts for the time since the previous batch to within
-// a few hundred ms (in a five-minute test, never more than 330 ms short),
-// while a dropped beat leaves a whole beat unaccounted for. So a shortfall
-// of more than half a beat, and at least GAP_MIN ms, is a gap.
-const GAP_MIN = 400;
+// they are simply missing, not merged into a long interval. The sensor
+// hands over, once a second, the beats that ended since the last time, so
+// a beat longer than a second can leave a second with none: a batch can
+// fall a whole beat short with nothing dropped. Instead the watch keeps
+// track of when the newest beat could have ended: after the previous
+// callback and by this one, give or take GAP_JITTER ms. Each batch's beats
+// carry that window forward; a gap is when they can't reach this second
+// however the window falls.
+const GAP_JITTER = 200;
 
 // Movement in milli-g: the accelerometer's spread over each second. Holding
 // still leaves only gravity, which doesn't spread. In the first watch test
@@ -89,6 +92,9 @@ class BeatTest {
     hidden var _settleSum = 0;   // the ring's reference: settling's average beat
     hidden var _settleCount = 0;
     hidden var _lastBatchAt = null;  // System.getTimer() of the last batch with beats
+    hidden var _lastCallAt = null;   // ... and of the last callback, with beats or not
+    hidden var _endLo = null;        // when the newest beat could have ended, as
+    hidden var _endHi = null;        //   System.getTimer() ms
     hidden var _gapTotal = 0;        // ms missing over the whole recording
     hidden var _shortTotal = 0;      // ms: every batch's shortfall, added up
     hidden var _movedAt = null;
@@ -162,10 +168,9 @@ class BeatTest {
         if (accel != null) {
             addMotion(spread(accel.x, accel.y, accel.z));
         }
+        // An empty second counts too: it narrows when the next beat ended
         var hr = data.heartRateData;
-        if (hr != null && hr.heartBeatIntervals != null) {
-            addBeats(hr.heartBeatIntervals);
-        }
+        addBeats(hr != null && hr.heartBeatIntervals != null ? hr.heartBeatIntervals : []);
     }
 
     // One second's movement in mg. The self-test calls this directly.
@@ -187,10 +192,13 @@ class BeatTest {
         return _movedAt != null && System.getTimer() - _movedAt < MOVE_HOLD;
     }
 
+    // One callback's beats, possibly none. The self-test calls this directly.
     function addBeats(intervals) {
+        var now = System.getTimer();
         if (intervals.size() > 0) {
-            checkForGap(intervals);
+            checkForGap(intervals, now);
         }
+        _lastCallAt = now;
         var moved = motion > MOVE_LIMIT;
         for (var i = 0; i < intervals.size(); i++) {
             addBeat(intervals[i], moved);
@@ -202,24 +210,40 @@ class BeatTest {
         WatchUi.requestUpdate();
     }
 
-    hidden function checkForGap(intervals) {
-        var now = System.getTimer();
-        if (_lastBatchAt != null) {
-            var covered = 0;
-            for (var i = 0; i < intervals.size(); i++) {
-                covered += intervals[i];
-            }
-            var missing = now - _lastBatchAt - covered;
-            if (_session != null) {
-                _shortTotal += missing;
-                _shortField.setData(_shortTotal);
-            }
-            var limit = (lastRr != null ? lastRr : 1000) / 2;
-            if (missing > (limit > GAP_MIN ? limit : GAP_MIN)) {
-                gap(missing);
-            }
+    hidden function checkForGap(intervals, now) {
+        var covered = 0;
+        for (var i = 0; i < intervals.size(); i++) {
+            covered += intervals[i];
+        }
+        if (_lastBatchAt != null && _session != null) {
+            _shortTotal += now - _lastBatchAt - covered;
+            _shortField.setData(_shortTotal);
         }
         _lastBatchAt = now;
+
+        // The newest beat ended after the previous callback, or it would
+        // have come then, and by now
+        var after = _lastCallAt != null ? _lastCallAt : now - 1000;
+        if (_endHi == null) {
+            _endLo = after;
+            _endHi = now;
+            return;
+        }
+        var lo = _endLo + covered;
+        var hi = _endHi + covered;
+        if (hi < after - GAP_JITTER) {
+            // Even ending as late as they could, the beats fall short
+            gap((after + now) / 2 - (lo + hi) / 2);
+            _endLo = after;
+            _endHi = now;
+        } else if (lo > now + GAP_JITTER) {
+            // They run past the clock: the window was off, so start afresh
+            _endLo = after;
+            _endHi = now;
+        } else {
+            _endLo = lo > after - GAP_JITTER ? lo : after - GAP_JITTER;
+            _endHi = hi < now + GAP_JITTER ? hi : now + GAP_JITTER;
+        }
     }
 
     // The sensor dropped ms worth of beats before the batch now arriving.

@@ -19,14 +19,17 @@ scripts/install.sh          # sideload over MTP (Garmin Express must not be runn
 
 The self-test build layers `selftest.jungle` over `monkey.jungle`, which
 swaps the `(:notselftest)` stub for `source/SelfTest.mc`: it starts a
-5 s + 20 s test by itself, feeds a fixed beat sequence through
+5 s + 25 s test by itself, feeds a fixed beat sequence through
 `BeatTest.addBeats` (the path real sensor data takes), and prints every beat
-and the final statistics. It delivers each beat as it ends, as the watch's
-sensor does, drops beats 18–21 while reporting 120 mg of movement, then
-drops beat 24 on its own, so the run should show a 3.2 s gap after beat 17,
-a 0.8 s gap after beat 19 and 3 s of movement, the same on the watch's side
-and in `tools/beats.py`, whose batch shortfalls should stay within tens of
-ms.
+and the final statistics. Like the watch's sensor, it hands over once a
+second the beats that ended since the second before; at about 61 bpm some
+seconds are empty, and the 1650 ms artifact makes another. It drops beat 14
+on its own, beats 18–21 while reporting 120 mg of movement, and beat 24 on
+its own just after. The run should show a gap of about 1 s after beat 13,
+about 4 s after beat 16 and 4 s of movement, and no gap for beat 24 (the
+timing hasn't narrowed again that soon after a gap), the same on the
+watch's side and in `tools/beats.py`, whose time check should come out
+about 1 s short (beat 24).
 Verify a change by running it and checking that
 `tools/beats.py` recovers exactly the printed beats and the same numbers:
 
@@ -93,11 +96,13 @@ The tool's after-submit page doesn't prove the version landed; a second
 
 ## Open questions
 
-- The gap threshold (half a beat, at least `GAP_MIN` = 400 ms) rests on one
-  five-minute 0.2.1 test (2026-10-29 16:38, in `~/src/watch-files`):
-  batches without a drop were never more than 330 ms short, and single
-  dropped beats left 880–1020 ms. Real single drops come out about a beat
-  long; a run of 0.4–0.6 s gaps would mean false ones, so raise `GAP_MIN`.
+- The gap rule (0.2.4) replaced 0.2.3's "half a beat short", which counted
+  every empty second as a gap: at 59 bpm (the 2026-10-29 20:43 test) that
+  was 44 gaps and 77.8 s where the time leaves room for about 62.5 s.
+  Replayed offline on that test and the 16:38 one, the new rule found
+  every long gap on the same beat and came within a second of the time.
+  Watch `tools/beats.py`'s time check on real tests: well over a beat
+  either way means the rule (or `GAP_JITTER`) needs another look.
 - `MOVE_LIMIT` (50 mg) holds: still, the wrist reads 13–24 mg; moving,
   84–786 mg. But most gaps come without movement: nine of the 0.2.1 test's
   eleven (45 s, 15% of the measurement) had none.
