@@ -13,6 +13,7 @@ The SDK is found by glob and the signing key is `~/Downloads/developer_key`
 ```sh
 scripts/build.sh            # bin/beatlog.prg for the watch
 scripts/build.sh selftest   # bin/beatlog-selftest.prg, simulator only
+scripts/build.sh iq         # bin/beatlog-<AppVersion>.iq, the store package
 scripts/install.sh          # sideload over MTP (Garmin Express must not be running)
 ```
 
@@ -46,6 +47,16 @@ java -classpath "$SDK/bin/monkeybrains.jar" com.garmin.monkeybrains.monkeydodeux
   `$TMPDIR/com.garmin.connectiq/GARMIN/Activities/`; a file being recorded
   has a zero data size in its header and won't decode until saved.
 - Developer field ids are permanent: add new ids, never renumber.
+- The simulator doesn't enforce the watch's execution watchdog, so keep
+  per-update work small: `BeatRing` computes each beat's position once, on
+  arrival, and `onUpdate` only draws lines.
+- Screenshots: File › Save Screen Capture opens a save panel that runs in a
+  separate process, which computer use can't drive (nor AppleScript while
+  the screen is locked). Crop a 1:1 window capture instead: in the 570×918
+  simulator window the 390×390 display sits at (93, 252)–(483, 642).
+- If `MonkeyDoDeux` prints nothing (seen after the Mac locked), the
+  simulator is wedged: `pkill -f "ConnectIQ.app/Contents/MacOS/simulator"`
+  and reopen it.
 - The self-test's 20 s ring has only ~24 beats. To see what a full
   five-minute ring looks like, temporarily make `SelfTest.onTick` add 15000
   to `_budget` during `PHASE_MEASURING`; the results screen then shows ~390
