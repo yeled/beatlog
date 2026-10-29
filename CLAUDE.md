@@ -87,8 +87,10 @@ The tool's after-submit page doesn't prove the version landed; a second
 
 ## Open questions
 
-- Whether `heartBeatIntervals` carries the HRM600's intervals when the strap
-  is connected, or the wrist sensor's. `tools/beats.py` reports which heart
+- The wrist sensor's beat intervals arrive on the Venu 4 (confirmed with
+  0.1.1, once the onboard sensor was enabled). Still open: whether
+  `heartBeatIntervals` carries the HRM600's intervals when the strap is
+  connected. `tools/beats.py` reports which heart
   rate sources the FIT file lists; check the first real test.
 - Whether the Venu 4 writes a record every second for this app. If
   `tools/beats.py` reports missing beats, raise `WINDOW`.
