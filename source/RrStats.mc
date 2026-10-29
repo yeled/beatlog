@@ -21,10 +21,11 @@ class RrStats {
     function initialize() {
     }
 
+    // True if the beat counted, false if it was an artifact.
     function add(rr) {
         if (rr < 300 || rr > 2000) {
             reject();
-            return;
+            return false;
         }
         if (_last != null) {
             var jump = rr - _last;
@@ -36,7 +37,7 @@ class RrStats {
             if (jump > _last * 0.2 && _outlierRun < 2) {
                 _outlierRun++;
                 reject();
-                return;
+                return false;
             }
         }
         _outlierRun = 0;
@@ -51,6 +52,7 @@ class RrStats {
         _m2 += delta * (rr - _mean);
         _last = rr;
         _chained = true;
+        return true;
     }
 
     hidden function reject() {

@@ -43,6 +43,9 @@ class BeatLogView extends WatchUi.View {
             big = clock(_test.remaining());
             hint = "START ends early";
         }
+        if (phase != PHASE_READY) {
+            _test.ring.draw(dc, _test.measureSeconds * 1000, phase == PHASE_MEASURING);
+        }
 
         text(dc, cx, h * 0.20, Graphics.FONT_SMALL, titleColor, title);
         text(dc, cx, h * 0.40, Graphics.FONT_NUMBER_MEDIUM, Graphics.COLOR_WHITE, big);
@@ -61,7 +64,7 @@ class BeatLogView extends WatchUi.View {
                 + "   " + _test.stats.count + " beats";
             text(dc, cx, h * 0.70, Graphics.FONT_TINY, Graphics.COLOR_WHITE, line);
         }
-        text(dc, cx, h * 0.82, Graphics.FONT_XTINY, GREY, hint);
+        text(dc, cx, h * 0.79, Graphics.FONT_XTINY, GREY, hint);
     }
 
     hidden function drawResults(dc) {
@@ -71,18 +74,19 @@ class BeatLogView extends WatchUi.View {
         var rmssd = stats.rmssd();
         var sdnn = stats.sdnn();
         var meanHr = stats.meanHr();
+        _test.ring.draw(dc, _test.measureSeconds * 1000, false);
 
-        text(dc, cx, h * 0.17, Graphics.FONT_SMALL, GREY, "RMSSD");
-        text(dc, cx, h * 0.35, Graphics.FONT_NUMBER_HOT, Graphics.COLOR_WHITE,
+        text(dc, cx, h * 0.21, Graphics.FONT_SMALL, GREY, "RMSSD");
+        text(dc, cx, h * 0.37, Graphics.FONT_NUMBER_HOT, Graphics.COLOR_WHITE,
             rmssd != null ? rmssd.format("%.0f") : "--");
-        text(dc, cx, h * 0.52, Graphics.FONT_TINY, Graphics.COLOR_WHITE,
+        text(dc, cx, h * 0.515, Graphics.FONT_TINY, Graphics.COLOR_WHITE,
             rmssd != null && rmssd > 0 ? "ms   ln " + Math.ln(rmssd).format("%.2f") : "ms");
-        text(dc, cx, h * 0.62, Graphics.FONT_TINY, Graphics.COLOR_WHITE,
+        text(dc, cx, h * 0.60, Graphics.FONT_TINY, Graphics.COLOR_WHITE,
             "SDNN " + (sdnn != null ? sdnn.format("%.0f") : "--")
             + "   HR " + (meanHr != null ? meanHr.format("%.0f") : "--"));
-        text(dc, cx, h * 0.71, Graphics.FONT_XTINY, GREY,
-            stats.count + " beats   " + stats.artifacts + " artifacts");
-        text(dc, cx, h * 0.81, Graphics.FONT_XTINY, GREY, "Saved   START for another");
+        text(dc, cx, h * 0.675, Graphics.FONT_XTINY, GREY,
+            stats.count + " beats  " + stats.artifacts + " artifacts");
+        text(dc, cx, h * 0.745, Graphics.FONT_XTINY, GREY, "Saved  START again");
     }
 
     hidden function text(dc, x, y, font, color, str) {

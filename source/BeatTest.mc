@@ -48,6 +48,7 @@ class BeatTest {
     var heartRate = null;   // from the once-a-second sensor events
     var lastRr = null;      // newest beat interval, recording or not
     var stats = null;       // measurement lap only
+    var ring = null;        // measurement lap only
 
     hidden var _session = null;
     hidden var _timer = null;
@@ -67,6 +68,7 @@ class BeatTest {
 
     function initialize() {
         stats = new RrStats();
+        ring = new BeatRing();
     }
 
     // SENSOR_HEARTRATE turns on a paired strap; beat intervals then come
@@ -120,7 +122,7 @@ class BeatTest {
         }
         _window[WINDOW - 1] = rr < RR_INVALID ? rr : RR_INVALID - 1;
         if (phase == PHASE_MEASURING) {
-            stats.add(rr);
+            ring.add(rr, stats.add(rr));
         }
     }
 
@@ -157,6 +159,7 @@ class BeatTest {
         }
         _beat = 0;
         stats = new RrStats();
+        ring = new BeatRing();
         _rrField.setData(_window);
         _rrBeatField.setData(0);
 
@@ -199,6 +202,7 @@ class BeatTest {
         if (_session == null) {
             return;
         }
+        ring.closed = remaining() == 0;
         stopTimer();
         setLapFields();
         setIfKnown(_rmssdField, stats.rmssd());
