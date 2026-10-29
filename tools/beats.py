@@ -101,6 +101,7 @@ class RrStats:
 
     def gap(self):
         self.chained = False
+        self.last, self.outlier_run = None, 0
 
     def reject(self):
         self.artifacts += 1

@@ -56,9 +56,13 @@ class RrStats {
     }
 
     // The sensor dropped beats here: the next beat doesn't follow the last
-    // one, so no successive difference spans the gap. Not an artifact.
+    // one, so no successive difference spans the gap, and the last good beat
+    // is no yardstick for the next (heart rate may have moved meanwhile), so
+    // the filter starts again as at the beginning. Not an artifact.
     function gap() {
         _chained = false;
+        _last = null;
+        _outlierRun = 0;
     }
 
     hidden function reject() {
