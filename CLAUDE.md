@@ -21,7 +21,9 @@ The self-test build layers `selftest.jungle` over `monkey.jungle`, which
 swaps the `(:notselftest)` stub for `source/SelfTest.mc`: it starts a
 5 s + 20 s test by itself, feeds a fixed beat sequence through
 `BeatTest.addBeats` (the path real sensor data takes), and prints every beat
-and the final statistics. Verify a change by running it and checking that
+and the final statistics. It drops beats 18–21 and reports 120 mg of
+movement meanwhile, so the run should show one 3.2 s gap after beat 17 and
+3 s of movement, the same on the watch's side and in `tools/beats.py`. Verify a change by running it and checking that
 `tools/beats.py` recovers exactly the printed beats and the same numbers:
 
 ```sh
@@ -86,6 +88,10 @@ The tool's after-submit page doesn't prove the version landed; a second
 `--dry-run` shows "Latest app version" on step 1. Tag `v<version>-beta`.
 
 ## Open questions
+
+- `MOVE_LIMIT` (50 mg) is a guess. Real recordings carry `motion` every
+  second, and `tools/beats.py` prints the movement around each gap: tune
+  the limit to where gaps start.
 
 - The wrist sensor's beat intervals arrive on the Venu 4 (confirmed with
   0.1.1, once the onboard sensor was enabled). Still open: whether

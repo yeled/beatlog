@@ -3,6 +3,7 @@ import Toybox.ActivityRecording;
 import Toybox.Attention;
 import Toybox.FitContributor;
 import Toybox.Lang;
+import Toybox.Math;
 import Toybox.Sensor;
 import Toybox.System;
 import Toybox.Timer;
@@ -22,9 +23,26 @@ const PHASE_DONE = 3;
 // beat can appear in several records and a record can be skipped; the
 // numbering lets a reader place each beat exactly once. 16 beats cover at
 // least 4.8 s even at 200 bpm. Laps carry the window too, because beats
-// from the last second before a lap closes may miss every record.
+// from the last second before a lap closes may miss every record. Gaps are
+// recorded the same way: each record carries the total time of the beats
+// the sensor dropped so far, and the number of the last beat before the
+// latest gap.
 const WINDOW = 16;
 const RR_INVALID = 0xFFFF;
+
+// The wrist sensor drops beats it can't place, as when the wrist moves:
+// they are simply missing, not merged into a long interval. A batch of
+// beats should account for the time since the previous batch, give or take
+// one beat (batches are delivered once a second, each up to a beat late),
+// so a shortfall of more than a beat plus GAP_SLACK ms is a gap.
+const GAP_SLACK = 1000;
+
+// Movement in milli-g: the accelerometer's spread over each second. Holding
+// still leaves only gravity, which doesn't spread. MOVE_LIMIT is a first
+// guess, to be tuned against the motion field in real recordings.
+const MOVE_LIMIT = 50;
+const MOVE_HOLD = 3000;   // ms "Hold still" stays up after moving
+const ACCEL_RATE = 25;    // Hz
 
 // FIT developer field ids. Never renumber: old files keep the old meaning.
 const FIELD_RR = 0;
@@ -36,6 +54,12 @@ const FIELD_MEAN_HR = 5;
 const FIELD_BEATS = 6;
 const FIELD_ARTIFACTS = 7;
 const FIELD_LAP_RR = 8;
+const FIELD_MOTION = 9;
+const FIELD_GAP_BEAT = 10;
+const FIELD_GAP_MS = 11;
+const FIELD_GAPS = 12;
+const FIELD_GAP_SECONDS = 13;
+const FIELD_MOVING_SECONDS = 14;
 
 // One HRV test: a settling lap, a measurement lap, and the beat intervals
 // from both written into the activity's FIT file.
@@ -47,8 +71,12 @@ class BeatTest {
     var synthetic = false;  // the self-test feeds beats; ignore the sensor's
     var heartRate = null;   // from the once-a-second sensor events
     var lastRr = null;      // newest beat interval, recording or not
+    var motion = 0;         // mg, over the latest second
     var stats = null;       // measurement lap only
     var ring = null;        // measurement lap only
+    var gaps = 0;           // measurement lap only: times the sensor dropped beats,
+    var gapMs = 0;          //   and the time those beats would have covered
+    var movingSeconds = 0;  // measurement lap only
 
     hidden var _session = null;
     hidden var _timer = null;
@@ -57,6 +85,9 @@ class BeatTest {
     hidden var _beat = 0;   // beats since the recording started
     hidden var _settleSum = 0;   // the ring's reference: settling's average beat
     hidden var _settleCount = 0;
+    hidden var _lastBatchAt = null;  // System.getTimer() of the last batch with beats
+    hidden var _gapTotal = 0;        // ms missing over the whole recording
+    hidden var _movedAt = null;
 
     hidden var _rrField = null;
     hidden var _rrBeatField = null;
@@ -67,6 +98,12 @@ class BeatTest {
     hidden var _meanHrField = null;
     hidden var _beatsField = null;
     hidden var _artifactsField = null;
+    hidden var _motionField = null;
+    hidden var _gapBeatField = null;
+    hidden var _gapMsField = null;
+    hidden var _gapsField = null;
+    hidden var _gapSecondsField = null;
+    hidden var _movingField = null;
 
     function initialize() {
         stats = new RrStats();
@@ -86,10 +123,20 @@ class BeatTest {
             Sensor.setEnabledSensors([ Sensor.SENSOR_HEARTRATE ]);
         }
         Sensor.enableSensorEvents(method(:onSensor));
-        Sensor.registerSensorDataListener(method(:onSensorData), {
-            :period => 1,
-            :heartBeatIntervals => { :enabled => true }
-        });
+        var rate = Sensor.getMaxSampleRate();
+        try {
+            Sensor.registerSensorDataListener(method(:onSensorData), {
+                :period => 1,
+                :accelerometer => { :enabled => true, :sampleRate => rate < ACCEL_RATE ? rate : ACCEL_RATE },
+                :heartBeatIntervals => { :enabled => true }
+            });
+        } catch (e) {
+            // Beats matter more than movement
+            Sensor.registerSensorDataListener(method(:onSensorData), {
+                :period => 1,
+                :heartBeatIntervals => { :enabled => true }
+            });
+        }
     }
 
     function stopSensors() {
@@ -103,16 +150,45 @@ class BeatTest {
     }
 
     function onSensorData(data as Sensor.SensorData) as Void {
-        var hr = data.heartRateData;
-        if (synthetic || hr == null || hr.heartBeatIntervals == null) {
+        if (synthetic) {
             return;
         }
-        addBeats(hr.heartBeatIntervals);
+        var accel = data.accelerometerData;
+        if (accel != null) {
+            addMotion(spread(accel.x, accel.y, accel.z));
+        }
+        var hr = data.heartRateData;
+        if (hr != null && hr.heartBeatIntervals != null) {
+            addBeats(hr.heartBeatIntervals);
+        }
+    }
+
+    // One second's movement in mg. The self-test calls this directly.
+    function addMotion(mg) {
+        motion = mg;
+        if (mg > MOVE_LIMIT) {
+            _movedAt = System.getTimer();
+            if (phase == PHASE_MEASURING) {
+                movingSeconds++;
+            }
+        }
+        if (_session != null) {
+            _motionField.setData(mg < RR_INVALID ? mg : RR_INVALID - 1);
+        }
+    }
+
+    // True for a few seconds after moving too much.
+    function moving() {
+        return _movedAt != null && System.getTimer() - _movedAt < MOVE_HOLD;
     }
 
     function addBeats(intervals) {
+        if (intervals.size() > 0) {
+            checkForGap(intervals);
+        }
+        var moved = motion > MOVE_LIMIT;
         for (var i = 0; i < intervals.size(); i++) {
-            addBeat(intervals[i]);
+            addBeat(intervals[i], moved);
         }
         if (_session != null && intervals.size() > 0) {
             _rrField.setData(_window);
@@ -121,7 +197,39 @@ class BeatTest {
         WatchUi.requestUpdate();
     }
 
-    hidden function addBeat(rr) {
+    hidden function checkForGap(intervals) {
+        var now = System.getTimer();
+        if (_lastBatchAt != null) {
+            var covered = 0;
+            for (var i = 0; i < intervals.size(); i++) {
+                covered += intervals[i];
+            }
+            var missing = now - _lastBatchAt - covered;
+            var beat = lastRr != null ? lastRr : 1000;
+            if (missing > beat + GAP_SLACK) {
+                gap(missing);
+            }
+        }
+        _lastBatchAt = now;
+    }
+
+    // The sensor dropped ms worth of beats before the batch now arriving.
+    hidden function gap(ms) {
+        if (_session == null) {
+            return;
+        }
+        _gapTotal += ms;
+        _gapBeatField.setData(_beat);
+        _gapMsField.setData(_gapTotal);
+        if (phase == PHASE_MEASURING) {
+            gaps++;
+            gapMs += ms;
+            stats.gap();
+            ring.gap(ms);
+        }
+    }
+
+    hidden function addBeat(rr, moved) {
         lastRr = rr;
         if (_session == null) {
             return;
@@ -132,7 +240,7 @@ class BeatTest {
         }
         _window[WINDOW - 1] = rr < RR_INVALID ? rr : RR_INVALID - 1;
         if (phase == PHASE_MEASURING) {
-            ring.add(rr, stats.add(rr));
+            ring.add(rr, stats.add(rr), moved);
         } else if (rr >= 300 && rr <= 2000) {
             _settleSum += rr;
             _settleCount++;
@@ -151,6 +259,12 @@ class BeatTest {
             { :count => WINDOW, :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "ms" });
         _rrBeatField = _session.createField("rr_beat", FIELD_RR_BEAT, FitContributor.DATA_TYPE_UINT32,
             { :mesgType => FitContributor.MESG_TYPE_RECORD });
+        _motionField = _session.createField("motion", FIELD_MOTION, FitContributor.DATA_TYPE_UINT16,
+            { :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "mg" });
+        _gapBeatField = _session.createField("gap_beat", FIELD_GAP_BEAT, FitContributor.DATA_TYPE_UINT32,
+            { :mesgType => FitContributor.MESG_TYPE_RECORD });
+        _gapMsField = _session.createField("gap_ms", FIELD_GAP_MS, FitContributor.DATA_TYPE_UINT32,
+            { :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "ms" });
         _lastBeatField = _session.createField("last_beat", FIELD_LAST_BEAT, FitContributor.DATA_TYPE_UINT32,
             { :mesgType => FitContributor.MESG_TYPE_LAP });
         _lapRrField = _session.createField("lap_rr", FIELD_LAP_RR, FitContributor.DATA_TYPE_UINT16,
@@ -165,6 +279,12 @@ class BeatTest {
             { :mesgType => FitContributor.MESG_TYPE_SESSION });
         _artifactsField = _session.createField("artifacts", FIELD_ARTIFACTS, FitContributor.DATA_TYPE_UINT16,
             { :mesgType => FitContributor.MESG_TYPE_SESSION });
+        _gapsField = _session.createField("gaps", FIELD_GAPS, FitContributor.DATA_TYPE_UINT16,
+            { :mesgType => FitContributor.MESG_TYPE_SESSION });
+        _gapSecondsField = _session.createField("gap_s", FIELD_GAP_SECONDS, FitContributor.DATA_TYPE_FLOAT,
+            { :mesgType => FitContributor.MESG_TYPE_SESSION, :units => "s" });
+        _movingField = _session.createField("moving_s", FIELD_MOVING_SECONDS, FitContributor.DATA_TYPE_UINT16,
+            { :mesgType => FitContributor.MESG_TYPE_SESSION, :units => "s" });
 
         _window = new [WINDOW];
         for (var i = 0; i < WINDOW; i++) {
@@ -175,8 +295,15 @@ class BeatTest {
         ring = new BeatRing(measureSeconds * 1000);
         _settleSum = 0;
         _settleCount = 0;
+        _gapTotal = 0;
+        gaps = 0;
+        gapMs = 0;
+        movingSeconds = 0;
         _rrField.setData(_window);
         _rrBeatField.setData(0);
+        _motionField.setData(0);
+        _gapBeatField.setData(0);
+        _gapMsField.setData(0);
 
         _session.start();
         enterPhase(PHASE_SETTLING);
@@ -228,6 +355,9 @@ class BeatTest {
         setIfKnown(_meanHrField, stats.meanHr());
         _beatsField.setData(stats.count);
         _artifactsField.setData(stats.artifacts);
+        _gapsField.setData(gaps);
+        _gapSecondsField.setData(gapMs / 1000.0);
+        _movingField.setData(movingSeconds);
         _session.stop();
         _session.save();
         _session = null;
@@ -274,6 +404,30 @@ class BeatTest {
         if (value != null) {
             field.setData(value);
         }
+    }
+
+    // The spread (standard deviation) of the acceleration vector around its
+    // mean over one batch of samples, in mg.
+    hidden function spread(x, y, z) {
+        if (x == null || y == null || z == null || x.size() < 2) {
+            return 0;
+        }
+        return Math.sqrt(variance(x) + variance(y) + variance(z)).toNumber();
+    }
+
+    hidden function variance(a) {
+        var n = a.size();
+        var sum = 0.0;
+        for (var i = 0; i < n; i++) {
+            sum += a[i];
+        }
+        var mean = sum / n;
+        var sq = 0.0;
+        for (var i = 0; i < n; i++) {
+            var d = a[i] - mean;
+            sq += d * d;
+        }
+        return sq / n;
     }
 
     hidden function vibrate() {

@@ -7,14 +7,18 @@ import Toybox.Timer;
 // short test on a made-up beat sequence, printing every beat and the
 // results, so the FIT file the simulator saves can be checked beat for beat
 // with tools/beats.py. Beats arrive the way the sensor delivers them: as
-// many per second as fit, so some seconds carry none and some two.
+// many per second as fit, so some seconds carry none and some two. A few
+// beats in the measurement are dropped, as the wrist sensor does when the
+// wrist moves, and those seconds report movement; dropped beats aren't
+// numbered, so the printed beat numbers match the FIT file's.
 (:selftest)
 class SelfTest {
 
     hidden var _test;
     hidden var _timer;
     hidden var _ticks = 0;
-    hidden var _beat = 0;
+    hidden var _beat = 0;       // beats made up so far, dropped or not
+    hidden var _delivered = 0;  // beats handed to the test
     hidden var _budget = 0;     // ms elapsed but not yet used up by beats
 
     function initialize(test) {
@@ -37,7 +41,8 @@ class SelfTest {
             _timer.stop();
             var s = _test.stats;
             System.println("selftest: done rmssd=" + fmt(s.rmssd()) + " sdnn=" + fmt(s.sdnn())
-                + " mean_hr=" + fmt(s.meanHr()) + " beats=" + s.count + " artifacts=" + s.artifacts);
+                + " mean_hr=" + fmt(s.meanHr()) + " beats=" + s.count + " artifacts=" + s.artifacts
+                + " gaps=" + _test.gaps + " gap_ms=" + _test.gapMs + " moving_s=" + _test.movingSeconds);
             return;
         }
         if (_test.phase == PHASE_READY) {
@@ -45,13 +50,21 @@ class SelfTest {
         }
         _budget += 1000;
         var beats = [];
+        var dropped = false;
         while (rrFor(_beat + 1) <= _budget) {
             _beat++;
             var rr = rrFor(_beat);
             _budget -= rr;
+            if (_beat >= 18 && _beat <= 21) {
+                dropped = true;
+                System.println("drop " + _beat + " " + rr);
+                continue;
+            }
+            _delivered++;
             beats.add(rr);
-            System.println("beat " + _beat + " " + rr + " phase " + _test.phase);
+            System.println("beat " + _delivered + " " + rr + " phase " + _test.phase);
         }
+        _test.addMotion(dropped ? 120 : 8);
         _test.addBeats(beats);
     }
 

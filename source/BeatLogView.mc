@@ -43,6 +43,13 @@ class BeatLogView extends WatchUi.View {
             big = clock(_test.remaining());
             hint = "START ends early";
         }
+        var hintFont = Graphics.FONT_XTINY;
+        var hintColor = GREY;
+        if (phase != PHASE_READY && _test.moving()) {
+            hint = "Hold still";
+            hintFont = Graphics.FONT_TINY;
+            hintColor = Graphics.COLOR_YELLOW;
+        }
         if (phase != PHASE_READY) {
             _test.ring.draw(dc, phase == PHASE_MEASURING);
         }
@@ -64,7 +71,7 @@ class BeatLogView extends WatchUi.View {
                 + "   " + _test.stats.count + " beats";
             text(dc, cx, h * 0.70, Graphics.FONT_TINY, Graphics.COLOR_WHITE, line);
         }
-        text(dc, cx, h * 0.79, Graphics.FONT_XTINY, GREY, hint);
+        text(dc, cx, h * 0.79, hintFont, hintColor, hint);
     }
 
     hidden function drawResults(dc) {
@@ -86,7 +93,20 @@ class BeatLogView extends WatchUi.View {
             + "   HR " + (meanHr != null ? meanHr.format("%.0f") : "--"));
         text(dc, cx, h * 0.675, Graphics.FONT_XTINY, GREY,
             stats.count + " beats  " + stats.artifacts + " artifacts");
-        text(dc, cx, h * 0.745, Graphics.FONT_XTINY, GREY, "Saved  START again");
+        // What the sensor missed and how long the wrist moved, if anything
+        var quality = "";
+        if (_test.gaps > 0) {
+            quality = "Missed " + ((_test.gapMs + 500) / 1000) + " s";
+        }
+        if (_test.movingSeconds > 0) {
+            quality += (quality.length() > 0 ? "  " : "") + "Moved " + _test.movingSeconds + " s";
+        }
+        if (quality.length() > 0) {
+            text(dc, cx, h * 0.745, Graphics.FONT_XTINY, Graphics.COLOR_YELLOW, quality);
+        } else {
+            text(dc, cx, h * 0.745, Graphics.FONT_XTINY, GREY, "Saved");
+        }
+        text(dc, cx, h * 0.815, Graphics.FONT_XTINY, GREY, "START again");
     }
 
     hidden function text(dc, x, y, font, color, str) {

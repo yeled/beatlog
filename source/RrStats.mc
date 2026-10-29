@@ -55,6 +55,12 @@ class RrStats {
         return true;
     }
 
+    // The sensor dropped beats here: the next beat doesn't follow the last
+    // one, so no successive difference spans the gap. Not an artifact.
+    function gap() {
+        _chained = false;
+    }
+
     hidden function reject() {
         artifacts++;
         _chained = false;
