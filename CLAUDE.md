@@ -66,11 +66,12 @@ java -classpath "$SDK/bin/monkeybrains.jar" com.garmin.monkeybrains.monkeydodeux
 - If `MonkeyDoDeux` prints nothing (seen after the Mac locked), the
   simulator is wedged: `pkill -f "ConnectIQ.app/Contents/MacOS/simulator"`
   and reopen it.
-- The self-test's 20 s ring has only ~24 beats. To see what a full
-  five-minute ring looks like, temporarily make `SelfTest.onTick` add 15000
-  to `_budget` during `PHASE_MEASURING`; the results screen then shows ~390
-  beats. Revert it before checking the FIT file, since 15 beats a second
-  overflows the 16-beat record window.
+- The self-test's 25 s ring has only ~20 beats. To see a full ring,
+  temporarily set `measureSeconds` to 300 in `SelfTest.initialize` (a
+  five-minute run).
+- The breathing wave lives in a bitmap drawn as beats arrive, not in
+  `onUpdate`, so a self-test run exercises it even with the screen locked;
+  only its look needs a screenshot.
 
 ## Store
 
