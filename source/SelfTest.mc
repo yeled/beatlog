@@ -8,10 +8,11 @@ import Toybox.Timer;
 // results, so the FIT file the simulator saves can be checked beat for beat
 // with tools/beats.py. Each beat arrives as it ends, which is how the
 // watch's sensor behaves: its batches account for the time since the
-// previous one to within a few hundred ms. A few beats in the measurement
+// previous one to within a few hundred ms. Four beats in the measurement
 // are dropped, as the wrist sensor does when the wrist moves, and the
-// seconds meanwhile report movement; dropped beats aren't numbered, so the
-// printed beat numbers match the FIT file's.
+// seconds meanwhile report movement; then one more is dropped on its own,
+// as the sensor also does while still. Dropped beats aren't numbered, so
+// the printed beat numbers match the FIT file's.
 (:selftest)
 class SelfTest {
 
@@ -21,7 +22,7 @@ class SelfTest {
     hidden var _ticks = 0;
     hidden var _beat = 0;       // beats made up so far, dropped or not
     hidden var _delivered = 0;  // beats handed to the test
-    hidden var _dropping = false;
+    hidden var _moving = false;
 
     function initialize(test) {
         _test = test;
@@ -51,7 +52,7 @@ class SelfTest {
             return;
         }
         if (_test.phase != PHASE_READY) {
-            _test.addMotion(_dropping ? 120 : 8);
+            _test.addMotion(_moving ? 120 : 8);
         }
     }
 
@@ -62,8 +63,8 @@ class SelfTest {
         }
         _beat++;
         var rr = rrFor(_beat);
-        _dropping = _beat >= 18 && _beat <= 21;
-        if (_dropping) {
+        _moving = _beat >= 18 && _beat <= 21;
+        if (_moving || _beat == 24) {
             System.println("drop " + _beat + " " + rr);
         } else {
             _delivered++;

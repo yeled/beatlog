@@ -63,11 +63,12 @@ then the measurement. Beat Log adds developer fields:
 The watch writes records on its own schedule, so the same beat can appear in
 several records and the last second of a lap can miss them all. Numbering
 the beats lets a reader place each one exactly once; the laps catch the
-tail. Gaps are found by time: each once-a-second batch of beats should
-account for the time since the previous one, give or take a beat, and the
-watch records any larger shortfall. A gap shows in a file as a step in
-`gap_ms`, after beat `gap_beat`. Smaller shortfalls are recorded too, in
-`short_ms`, to show how tight that threshold could be.
+tail. Gaps are found by time: each once-a-second batch of beats accounts
+for the time since the previous one to within a few hundred ms, so a batch
+more than half a beat short (and at least 400 ms) means the sensor dropped
+beats, even a single one. A gap shows in a file as a step in `gap_ms`,
+after beat `gap_beat`. Every batch's shortfall is recorded too, in
+`short_ms`, to check that threshold against.
 
 ## Reading a file
 

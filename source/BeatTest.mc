@@ -27,16 +27,17 @@ const PHASE_DONE = 3;
 // recorded the same way: each record carries the total time of the beats
 // the sensor dropped so far, and the number of the last beat before the
 // latest gap. Each record also carries the running total of every batch's
-// shortfall, gap or not, so a reader can see how tight GAP_SLACK could be.
+// shortfall, gap or not, so a reader can check the gap threshold.
 const WINDOW = 16;
 const RR_INVALID = 0xFFFF;
 
 // The wrist sensor drops beats it can't place, as when the wrist moves:
-// they are simply missing, not merged into a long interval. A batch of
-// beats should account for the time since the previous batch, give or take
-// one beat (batches are delivered once a second, each up to a beat late),
-// so a shortfall of more than a beat plus GAP_SLACK ms is a gap.
-const GAP_SLACK = 1000;
+// they are simply missing, not merged into a long interval. On the watch a
+// batch of beats accounts for the time since the previous batch to within
+// a few hundred ms (in a five-minute test, never more than 330 ms short),
+// while a dropped beat leaves a whole beat unaccounted for. So a shortfall
+// of more than half a beat, and at least GAP_MIN ms, is a gap.
+const GAP_MIN = 400;
 
 // Movement in milli-g: the accelerometer's spread over each second. Holding
 // still leaves only gravity, which doesn't spread. In the first watch test
@@ -213,8 +214,8 @@ class BeatTest {
                 _shortTotal += missing;
                 _shortField.setData(_shortTotal);
             }
-            var beat = lastRr != null ? lastRr : 1000;
-            if (missing > beat + GAP_SLACK) {
+            var limit = (lastRr != null ? lastRr : 1000) / 2;
+            if (missing > (limit > GAP_MIN ? limit : GAP_MIN)) {
                 gap(missing);
             }
         }

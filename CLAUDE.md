@@ -21,10 +21,12 @@ The self-test build layers `selftest.jungle` over `monkey.jungle`, which
 swaps the `(:notselftest)` stub for `source/SelfTest.mc`: it starts a
 5 s + 20 s test by itself, feeds a fixed beat sequence through
 `BeatTest.addBeats` (the path real sensor data takes), and prints every beat
-and the final statistics. It drops beats 18–21 and reports 120 mg of
-movement meanwhile, so the run should show one 3.2 s gap after beat 17 and
-3 s of movement, the same on the watch's side and in `tools/beats.py`,
-whose batch shortfall line should come to well under a second in all.
+and the final statistics. It delivers each beat as it ends, as the watch's
+sensor does, drops beats 18–21 while reporting 120 mg of movement, then
+drops beat 24 on its own, so the run should show a 3.2 s gap after beat 17,
+a 0.8 s gap after beat 19 and 3 s of movement, the same on the watch's side
+and in `tools/beats.py`, whose batch shortfalls should stay within tens of
+ms.
 Verify a change by running it and checking that
 `tools/beats.py` recovers exactly the printed beats and the same numbers:
 
@@ -91,14 +93,14 @@ The tool's after-submit page doesn't prove the version landed; a second
 
 ## Open questions
 
-- `MOVE_LIMIT` (50 mg) held up in the first 0.2.0 test (2026-10-29, in
-  `~/src/watch-files`): still, the wrist read 13–24 mg; movement read
-  84–786 mg. Only some gaps come with movement, though: two of that test's
-  five had none. About 5 s more went missing as single dropped beats, each
-  under the gap threshold (a beat plus `GAP_SLACK`), because each batch's
-  shortfall is forgotten once it passes the check. 0.2.1 records every
-  batch's shortfall (`short_ms`); `tools/beats.py` prints their spread, to
-  see how far `GAP_SLACK` can come down without false gaps.
+- The gap threshold (half a beat, at least `GAP_MIN` = 400 ms) rests on one
+  five-minute 0.2.1 test (2026-10-29 16:38, in `~/src/watch-files`):
+  batches without a drop were never more than 330 ms short, and single
+  dropped beats left 880–1020 ms. Real single drops come out about a beat
+  long; a run of 0.4–0.6 s gaps would mean false ones, so raise `GAP_MIN`.
+- `MOVE_LIMIT` (50 mg) holds: still, the wrist reads 13–24 mg; moving,
+  84–786 mg. But most gaps come without movement: nine of the 0.2.1 test's
+  eleven (45 s, 15% of the measurement) had none.
 
 - The wrist sensor's beat intervals arrive on the Venu 4 (confirmed with
   0.1.1, once the onboard sensor was enabled). Still open: whether
