@@ -63,6 +63,28 @@ java -classpath "$SDK/bin/monkeybrains.jar" com.garmin.monkeybrains.monkeydodeux
   beats. Revert it before checking the FIT file, since 15 beats a second
   overflows the 16-beat record window.
 
+## Store
+
+The Connect IQ store listing is **"Beat Log beta"**, a beta app (visible
+only to the developer account):
+https://apps.garmin.com/apps/590aeb1e-d384-4fd2-8d26-e832340c855e. Its id is
+the manifest's, so a future public listing needs a new app id (see
+analog-simple's `scripts/set-manifest.sh`). Images are in
+`screenshots/store/` (500×500, under the store's 150 KB limit).
+
+To release: bump `AppVersion` in `resources/strings/strings.xml`, commit,
+`scripts/build.sh iq`, then upload with analog-simple's dashboard tool (its
+signed-in Chrome session lives in `~/.config/analog-simple/`):
+
+```sh
+cd ~/src/analog-simple/scripts/store-upload
+node upload.mjs upload --name "Beat Log beta" --iq ~/src/beatlog/bin/beatlog-<version>.iq \
+  --version <version> --notes "What's new" --dry-run   # drop --dry-run to publish
+```
+
+The tool's after-submit page doesn't prove the version landed; a second
+`--dry-run` shows "Latest app version" on step 1. Tag `v<version>-beta`.
+
 ## Open questions
 
 - Whether `heartBeatIntervals` carries the HRM600's intervals when the strap
