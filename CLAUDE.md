@@ -23,7 +23,9 @@ swaps the `(:notselftest)` stub for `source/SelfTest.mc`: it starts a
 `BeatTest.addBeats` (the path real sensor data takes), and prints every beat
 and the final statistics. It drops beats 18–21 and reports 120 mg of
 movement meanwhile, so the run should show one 3.2 s gap after beat 17 and
-3 s of movement, the same on the watch's side and in `tools/beats.py`. Verify a change by running it and checking that
+3 s of movement, the same on the watch's side and in `tools/beats.py`,
+whose batch shortfall line should come to well under a second in all.
+Verify a change by running it and checking that
 `tools/beats.py` recovers exactly the printed beats and the same numbers:
 
 ```sh
@@ -94,7 +96,9 @@ The tool's after-submit page doesn't prove the version landed; a second
   84–786 mg. Only some gaps come with movement, though: two of that test's
   five had none. About 5 s more went missing as single dropped beats, each
   under the gap threshold (a beat plus `GAP_SLACK`), because each batch's
-  shortfall is forgotten once it passes the check.
+  shortfall is forgotten once it passes the check. 0.2.1 records every
+  batch's shortfall (`short_ms`); `tools/beats.py` prints their spread, to
+  see how far `GAP_SLACK` can come down without false gaps.
 
 - The wrist sensor's beat intervals arrive on the Venu 4 (confirmed with
   0.1.1, once the onboard sensor was enabled). Still open: whether

@@ -10,7 +10,9 @@ the measurement.
 The wrist sensor drops beats it can't place, as when the wrist moves. The
 watch notices the time they leave unaccounted for and records it: "gap_ms"
 is the running total and "gap_beat" the last beat before the latest gap.
-"motion" is the wrist's movement over each second, in milli-g.
+"short_ms" is the running total of every batch's shortfall, gap or not:
+the time since the previous batch minus the beats it brought. "motion" is
+the wrist's movement over each second, in milli-g.
 
     .venv/bin/python -I tools/beats.py ACTIVITY.fit                 # summary
     .venv/bin/python -I tools/beats.py ACTIVITY.fit --csv out.csv   # every beat
@@ -73,6 +75,22 @@ def collect_gaps(messages, keys):
             gaps[dev.get(keys["gap_beat"])] = (running - total, r.get("timestamp"))
             total = running
     return gaps
+
+
+def batch_shortfalls(records, keys, since):
+    """Each batch's shortfall from time `since` on, and whether the watch
+    called it a gap, from the steps in the running short_ms and gap_ms
+    totals. Files from before 0.2.1 have no short_ms."""
+    out, short, gap, beat = [], None, 0, None
+    for r in records:
+        dev = r.get("developer_fields", {})
+        s, g, b = dev.get(keys["short_ms"]), dev.get(keys["gap_ms"]) or 0, dev.get(keys["rr_beat"])
+        if s is None:
+            continue
+        if short is not None and b != beat and r.get("timestamp") and r["timestamp"] >= since:
+            out.append((s - short, g > gap))
+        short, gap, beat = s, g, b
+    return out
 
 
 class RrStats:
@@ -163,6 +181,7 @@ def main():
 
     # Movement per record, and when each beat arrived, to line the two up
     records = messages.get("record_mesgs", [])
+    start_measure = messages["lap_mesgs"][1]["start_time"] if len(messages.get("lap_mesgs", [])) > 1 else start
     motion_key, beat_key = keys.get("motion"), keys["rr_beat"]
     motion = [(r.get("timestamp"), r.get("developer_fields", {}).get(motion_key)) for r in records] if motion_key else []
     arrived = {}
@@ -183,8 +202,14 @@ def main():
                     and -ms / 1000 - 2 <= (ts - when).total_seconds() <= 0]
             print(f"    after beat {beat}, {ms / 1000:.1f} s, noticed at {fmt(t, 0)} s; "
                   f"movement then up to {max(near) if near else '--'} mg")
+    if "short_ms" in keys:
+        plain = sorted(ms for ms, was_gap in batch_shortfalls(records, keys, start_measure) if not was_gap)
+        if len(plain) > 1:
+            q = statistics.quantiles(plain, n=20, method="inclusive")
+            print(f"  batch shortfalls in the measurement, gaps aside: median {statistics.median(plain):.0f} ms, "
+                  f"5-95% {q[0]:.0f} to {q[-1]:.0f} ms, largest {plain[-1]} ms; "
+                  f"{sum(plain) / 1000:.1f} s in all, give or take a beat")
     if motion:
-        start_measure = messages["lap_mesgs"][1]["start_time"] if len(messages.get("lap_mesgs", [])) > 1 else start
         during = [m for ts, m in motion if m is not None and ts and ts >= start_measure]
         if during:
             print(f"  movement in the measurement: median {statistics.median(during):.0f} mg, "

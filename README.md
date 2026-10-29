@@ -53,6 +53,7 @@ then the measurement. Beat Log adds developer fields:
 | record | `rr_beat` | the number of the newest beat in `rr` |
 | record | `gap_ms` | total time of the beats the sensor has dropped so far |
 | record | `gap_beat` | the last beat before the latest gap |
+| record | `short_ms` | every batch's shortfall added up, gaps or not: the time since the previous batch minus the beats it brought |
 | record | `motion` (mg) | the wrist's movement over the latest second: the accelerometer's spread |
 | lap | `lap_rr`, `last_beat` | the same as `rr` and `rr_beat`, at the moment the lap closed |
 | session | `rmssd`, `sdnn`, `mean_hr`, `beats`, `artifacts`, `gaps`, `gap_s`, `moving_s` | what the results screen showed |
@@ -63,7 +64,8 @@ the beats lets a reader place each one exactly once; the laps catch the
 tail. Gaps are found by time: each once-a-second batch of beats should
 account for the time since the previous one, give or take a beat, and the
 watch records any larger shortfall. A gap shows in a file as a step in
-`gap_ms`, after beat `gap_beat`.
+`gap_ms`, after beat `gap_beat`. Smaller shortfalls are recorded too, in
+`short_ms`, to show how tight that threshold could be.
 
 ## Reading a file
 

@@ -26,7 +26,8 @@ const PHASE_DONE = 3;
 // from the last second before a lap closes may miss every record. Gaps are
 // recorded the same way: each record carries the total time of the beats
 // the sensor dropped so far, and the number of the last beat before the
-// latest gap.
+// latest gap. Each record also carries the running total of every batch's
+// shortfall, gap or not, so a reader can see how tight GAP_SLACK could be.
 const WINDOW = 16;
 const RR_INVALID = 0xFFFF;
 
@@ -38,8 +39,8 @@ const RR_INVALID = 0xFFFF;
 const GAP_SLACK = 1000;
 
 // Movement in milli-g: the accelerometer's spread over each second. Holding
-// still leaves only gravity, which doesn't spread. MOVE_LIMIT is a first
-// guess, to be tuned against the motion field in real recordings.
+// still leaves only gravity, which doesn't spread. In the first watch test
+// the wrist read 13-24 mg held still and 84 mg or more when moving.
 const MOVE_LIMIT = 50;
 const MOVE_HOLD = 3000;   // ms "Hold still" stays up after moving
 const ACCEL_RATE = 25;    // Hz
@@ -60,6 +61,7 @@ const FIELD_GAP_MS = 11;
 const FIELD_GAPS = 12;
 const FIELD_GAP_SECONDS = 13;
 const FIELD_MOVING_SECONDS = 14;
+const FIELD_SHORT_MS = 15;
 
 // One HRV test: a settling lap, a measurement lap, and the beat intervals
 // from both written into the activity's FIT file.
@@ -87,6 +89,7 @@ class BeatTest {
     hidden var _settleCount = 0;
     hidden var _lastBatchAt = null;  // System.getTimer() of the last batch with beats
     hidden var _gapTotal = 0;        // ms missing over the whole recording
+    hidden var _shortTotal = 0;      // ms: every batch's shortfall, added up
     hidden var _movedAt = null;
 
     hidden var _rrField = null;
@@ -104,6 +107,7 @@ class BeatTest {
     hidden var _gapsField = null;
     hidden var _gapSecondsField = null;
     hidden var _movingField = null;
+    hidden var _shortField = null;
 
     function initialize() {
         stats = new RrStats();
@@ -205,6 +209,10 @@ class BeatTest {
                 covered += intervals[i];
             }
             var missing = now - _lastBatchAt - covered;
+            if (_session != null) {
+                _shortTotal += missing;
+                _shortField.setData(_shortTotal);
+            }
             var beat = lastRr != null ? lastRr : 1000;
             if (missing > beat + GAP_SLACK) {
                 gap(missing);
@@ -265,6 +273,8 @@ class BeatTest {
             { :mesgType => FitContributor.MESG_TYPE_RECORD });
         _gapMsField = _session.createField("gap_ms", FIELD_GAP_MS, FitContributor.DATA_TYPE_UINT32,
             { :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "ms" });
+        _shortField = _session.createField("short_ms", FIELD_SHORT_MS, FitContributor.DATA_TYPE_SINT32,
+            { :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "ms" });
         _lastBeatField = _session.createField("last_beat", FIELD_LAST_BEAT, FitContributor.DATA_TYPE_UINT32,
             { :mesgType => FitContributor.MESG_TYPE_LAP });
         _lapRrField = _session.createField("lap_rr", FIELD_LAP_RR, FitContributor.DATA_TYPE_UINT16,
@@ -296,6 +306,7 @@ class BeatTest {
         _settleSum = 0;
         _settleCount = 0;
         _gapTotal = 0;
+        _shortTotal = 0;
         gaps = 0;
         gapMs = 0;
         movingSeconds = 0;
@@ -304,6 +315,7 @@ class BeatTest {
         _motionField.setData(0);
         _gapBeatField.setData(0);
         _gapMsField.setData(0);
+        _shortField.setData(0);
 
         _session.start();
         enterPhase(PHASE_SETTLING);
