@@ -39,8 +39,10 @@ out for a slower beat and further in for a faster one (against the average
 of the 30 beats before it, up to 140 ms either way), so breathing shows up
 as waves. Artifacts are grey dots, beats recorded while moving are yellow,
 dropped beats leave a hole, and a beat with a hole either side is a dot.
-The ring closes when the timer runs out and stays on the results screen;
-ending early leaves it open.
+Under the line, a blue wave shows the same swings three times over, so
+each breath stands out as a lobe: inward as you breathe in and your heart
+speeds up, outward as you breathe out. The ring closes when the timer runs
+out and stays on the results screen; ending early leaves it open.
 
 The screen's numbers drop beats outside 300–2000 ms or more than 20% away
 from the previous good beat. The FIT file keeps every raw beat.

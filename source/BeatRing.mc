@@ -11,6 +11,16 @@ const RING_PX_PER_MS = 0.1;  // so +-140 ms fits in RING_SWING px
 const RING_SWING = 14;
 const RING_AVG = 30;         // beats in the average a beat is drawn against
 
+// The breathing wave under the line: the same swings three times over,
+// easing off towards BLUE_OUT px outward (the screen's edge) and BLUE_IN
+// px inward. Its blue is 55% of 0x2A7FFF over black: everything under the
+// wave is black, and the track, line and text draw over it, so solid looks
+// the same as see-through and costs nothing per update.
+const BLUE_GAIN = 3;
+const BLUE_OUT = 17;
+const BLUE_IN = 45;
+const RING_BLUE = 0x17468C;
+
 // What each point is, as bits.
 const RING_ARTIFACT = 1;
 const RING_BREAK = 2;    // the sensor dropped beats just before this one
@@ -24,10 +34,15 @@ const RING_MOVING = 4;   // the wrist was moving
 // heart rate doesn't push the line off the scale. Artifacts are grey dots
 // on the track, beats recorded while moving are yellow, beats the sensor
 // dropped leave a hole, and a beat with a hole either side is a dot.
+// Under the line a blue wave exaggerates the same swings, so each breath
+// shows as a lobe; it's curved through the beats (Catmull-Rom) rather than
+// averaged, since a breath takes only 3-6 beats.
 //
 // A beat's position is worked out once, when it arrives. The watch, unlike
 // the simulator, kills an app whose onUpdate runs too long, and redoing the
 // trigonometry for every beat on every update would grow with the test.
+// The wave is drawn once into a bitmap, a beat behind (the curve needs the
+// next beat), and only drawn again if the system reclaims the bitmap.
 class BeatRing {
 
     var closed = false;     // the measurement ran its full time
@@ -39,6 +54,10 @@ class BeatRing {
     hidden var _x;
     hidden var _y;
     hidden var _kind;       // RING_* bits per point
+    hidden var _a;          // angle per point
+    hidden var _br;         // the wave's radius per point
+    hidden var _blue = null;    // BufferedBitmapReference for the wave
+    hidden var _blueUpTo = 0;   // the wave is drawn up to this point
     hidden var _n = 0;
     hidden var _elapsed = 0;
     hidden var _break = false;
@@ -56,6 +75,8 @@ class BeatRing {
         _x = new [RING_POINTS];
         _y = new [RING_POINTS];
         _kind = new [RING_POINTS]b;
+        _a = new [RING_POINTS];
+        _br = new [RING_POINTS];
         _recent = new [RING_AVG];
     }
 
@@ -74,9 +95,13 @@ class BeatRing {
             a = 2 * Math.PI;
         }
         var r = _base;
+        var br = _base;
         var kind = 0;
         if (good) {
             var swing = _recentN > 0 ? (rr - _recentSum.toFloat() / _recentN) * RING_PX_PER_MS : 0;
+            var wave = swing * BLUE_GAIN;
+            var limit = wave > 0 ? BLUE_OUT : BLUE_IN;
+            br += wave / Math.sqrt(1 + (wave / limit) * (wave / limit));
             if (swing > RING_SWING) {
                 swing = RING_SWING;
             } else if (swing < -RING_SWING) {
@@ -97,7 +122,15 @@ class BeatRing {
         _x[_n] = _cx + r * Math.sin(a);
         _y[_n] = _cy - r * Math.cos(a);
         _kind[_n] = kind;
+        _a[_n] = a;
+        _br[_n] = br;
         _n++;
+        drawWave(_n - 1);
+    }
+
+    // The measurement is over: the last stretch of wave needs no next beat.
+    function flush() {
+        drawWave(_n);
     }
 
     hidden function remember(rr) {
@@ -111,6 +144,70 @@ class BeatRing {
         _recentAt = (_recentAt + 1) % RING_AVG;
     }
 
+    // Draws the wave up to point upTo - 1, whose neighbour is now known.
+    hidden function drawWave(upTo) {
+        var bmp = waveBitmap();
+        if (bmp != null && upTo > 1) {
+            segment(bmp.getDc(), upTo - 1);
+        }
+        _blueUpTo = upTo;
+    }
+
+    // The bitmap the wave is drawn in, made again (and the wave so far
+    // redrawn) if the system has reclaimed it.
+    hidden function waveBitmap() {
+        var bmp = _blue != null ? _blue.get() : null;
+        if (bmp == null && Graphics has :createBufferedBitmap) {
+            _blue = Graphics.createBufferedBitmap({
+                :width => _cx * 2,
+                :height => _cy * 2,
+                :palette => [ Graphics.COLOR_BLACK, RING_BLUE ]
+            });
+            bmp = _blue.get();
+            if (bmp != null) {
+                var dc = bmp.getDc();
+                dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_BLACK);
+                dc.clear();
+                for (var i = 1; i < _blueUpTo; i++) {
+                    segment(dc, i);
+                }
+            }
+        }
+        return bmp;
+    }
+
+    // The wave between points i - 1 and i, if the line joins them, as a
+    // polygon from the curve back along the track.
+    hidden function segment(dc, i) {
+        if (!joined(i)) {
+            return;
+        }
+        var p0 = joined(i - 1) ? i - 2 : i - 1;
+        var p3 = joined(i + 1) ? i + 1 : i;
+        var pts = new [6];
+        for (var k = 0; k < 4; k++) {
+            var t = k / 3.0;
+            var a = spline(_a[p0], _a[i - 1], _a[i], _a[p3], t);
+            var r = spline(_br[p0], _br[i - 1], _br[i], _br[p3], t);
+            pts[k] = [ _cx + r * Math.sin(a), _cy - r * Math.cos(a) ];
+        }
+        pts[4] = [ _cx + _base * Math.sin(_a[i]), _cy - _base * Math.cos(_a[i]) ];
+        pts[5] = [ _cx + _base * Math.sin(_a[i - 1]), _cy - _base * Math.cos(_a[i - 1]) ];
+        dc.setColor(RING_BLUE, RING_BLUE);
+        dc.fillPolygon(pts);
+    }
+
+    // Whether the line runs from point i - 1 to point i.
+    hidden function joined(i) {
+        return i > 0 && i < _n && (_kind[i] & (RING_BREAK | RING_ARTIFACT)) == 0
+            && (_kind[i - 1] & RING_ARTIFACT) == 0;
+    }
+
+    hidden function spline(p0, p1, p2, p3, t) {
+        return 0.5 * (2 * p1 + (p2 - p0) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t
+            + (3 * p1 - p0 - 3 * p2 + p3) * t * t * t);
+    }
+
     // ms of beats the sensor dropped: time passes, nothing is drawn.
     function gap(ms) {
         _elapsed += ms;
@@ -121,6 +218,12 @@ class BeatRing {
     function draw(dc, head) {
         if (dc has :setAntiAlias) {
             dc.setAntiAlias(true);
+        }
+        if (_n > 0) {
+            var bmp = waveBitmap();
+            if (bmp != null) {
+                dc.drawBitmap(0, 0, bmp);
+            }
         }
         dc.setPenWidth(1);
         dc.setColor(RING_TRACK, Graphics.COLOR_TRANSPARENT);
@@ -142,9 +245,9 @@ class BeatRing {
                     dc.setColor(want, Graphics.COLOR_TRANSPARENT);
                     color = want;
                 }
-                if (i > 0 && (kind & RING_BREAK) == 0 && (_kind[i - 1] & RING_ARTIFACT) == 0) {
+                if (joined(i)) {
                     dc.drawLine(_x[i - 1], _y[i - 1], _x[i], _y[i]);
-                } else if (i == _n - 1 || (_kind[i + 1] & (RING_BREAK | RING_ARTIFACT)) != 0) {
+                } else if (!joined(i + 1)) {
                     // No line in or out
                     dc.fillCircle(_x[i], _y[i], 2);
                 }

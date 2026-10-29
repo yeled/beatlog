@@ -377,6 +377,7 @@ class BeatTest {
             return;
         }
         ring.closed = remaining() == 0;
+        ring.flush();
         stopTimer();
         setLapFields();
         setIfKnown(_rmssdField, stats.rmssd());
