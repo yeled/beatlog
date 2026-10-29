@@ -73,10 +73,18 @@ class BeatTest {
         ring = new BeatRing(measureSeconds * 1000);
     }
 
-    // SENSOR_HEARTRATE turns on a paired strap; beat intervals then come
-    // from whichever heart rate source the watch is using.
+    // Both heart rate sources: the watch's own sensor and a paired strap.
+    // Beat intervals then come from whichever one the watch is using.
+    // SENSOR_HEARTRATE alone means a strap, and setEnabledSensors turns off
+    // every type it isn't given, so on the watch that left the wrist sensor
+    // dark. enableSensorType leaves the other types alone.
     function startSensors() {
-        Sensor.setEnabledSensors([ Sensor.SENSOR_HEARTRATE ]);
+        if (Sensor has :enableSensorType) {
+            Sensor.enableSensorType(Sensor.SENSOR_ONBOARD_HEARTRATE);
+            Sensor.enableSensorType(Sensor.SENSOR_HEARTRATE);
+        } else {
+            Sensor.setEnabledSensors([ Sensor.SENSOR_HEARTRATE ]);
+        }
         Sensor.enableSensorEvents(method(:onSensor));
         Sensor.registerSensorDataListener(method(:onSensorData), {
             :period => 1,
