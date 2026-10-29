@@ -6,20 +6,22 @@ import Toybox.Timer;
 // Simulator self-test, only in builds made with selftest.jungle. Runs a
 // short test on a made-up beat sequence, printing every beat and the
 // results, so the FIT file the simulator saves can be checked beat for beat
-// with tools/beats.py. Beats arrive the way the sensor delivers them: as
-// many per second as fit, so some seconds carry none and some two. A few
-// beats in the measurement are dropped, as the wrist sensor does when the
-// wrist moves, and those seconds report movement; dropped beats aren't
-// numbered, so the printed beat numbers match the FIT file's.
+// with tools/beats.py. Each beat arrives as it ends, which is how the
+// watch's sensor behaves: its batches account for the time since the
+// previous one to within a few hundred ms. A few beats in the measurement
+// are dropped, as the wrist sensor does when the wrist moves, and the
+// seconds meanwhile report movement; dropped beats aren't numbered, so the
+// printed beat numbers match the FIT file's.
 (:selftest)
 class SelfTest {
 
     hidden var _test;
-    hidden var _timer;
+    hidden var _timer;          // once a second: start, movement, done
+    hidden var _beatTimer;      // once a beat
     hidden var _ticks = 0;
     hidden var _beat = 0;       // beats made up so far, dropped or not
     hidden var _delivered = 0;  // beats handed to the test
-    hidden var _budget = 0;     // ms elapsed but not yet used up by beats
+    hidden var _dropping = false;
 
     function initialize(test) {
         _test = test;
@@ -27,6 +29,7 @@ class SelfTest {
         _test.measureSeconds = 20;
         _test.synthetic = true;
         _timer = new Timer.Timer();
+        _beatTimer = new Timer.Timer();
         _timer.start(method(:onTick), 1000, true);
         System.println("selftest: waiting");
     }
@@ -36,36 +39,38 @@ class SelfTest {
         if (_ticks == 2) {
             _test.start();
             System.println("selftest: started");
+            _beatTimer.start(method(:onBeat), rrFor(1), false);
         }
         if (_test.phase == PHASE_DONE) {
             _timer.stop();
+            _beatTimer.stop();
             var s = _test.stats;
             System.println("selftest: done rmssd=" + fmt(s.rmssd()) + " sdnn=" + fmt(s.sdnn())
                 + " mean_hr=" + fmt(s.meanHr()) + " beats=" + s.count + " artifacts=" + s.artifacts
                 + " gaps=" + _test.gaps + " gap_ms=" + _test.gapMs + " moving_s=" + _test.movingSeconds);
             return;
         }
-        if (_test.phase == PHASE_READY) {
+        if (_test.phase != PHASE_READY) {
+            _test.addMotion(_dropping ? 120 : 8);
+        }
+    }
+
+    // The beat now ending: hand it over, or drop it, then wait for the next.
+    function onBeat() as Void {
+        if (_test.phase == PHASE_DONE) {
             return;
         }
-        _budget += 1000;
-        var beats = [];
-        var dropped = false;
-        while (rrFor(_beat + 1) <= _budget) {
-            _beat++;
-            var rr = rrFor(_beat);
-            _budget -= rr;
-            if (_beat >= 18 && _beat <= 21) {
-                dropped = true;
-                System.println("drop " + _beat + " " + rr);
-                continue;
-            }
+        _beat++;
+        var rr = rrFor(_beat);
+        _dropping = _beat >= 18 && _beat <= 21;
+        if (_dropping) {
+            System.println("drop " + _beat + " " + rr);
+        } else {
             _delivered++;
-            beats.add(rr);
             System.println("beat " + _delivered + " " + rr + " phase " + _test.phase);
+            _test.addBeats([ rr ]);
         }
-        _test.addMotion(dropped ? 120 : 8);
-        _test.addBeats(beats);
+        _beatTimer.start(method(:onBeat), rrFor(_beat + 1), false);
     }
 
     // About 75 bpm with a breathing-like swing, some jitter, and two
