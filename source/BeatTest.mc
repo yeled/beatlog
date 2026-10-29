@@ -1,0 +1,245 @@
+import Toybox.Activity;
+import Toybox.ActivityRecording;
+import Toybox.Attention;
+import Toybox.FitContributor;
+import Toybox.Lang;
+import Toybox.Sensor;
+import Toybox.System;
+import Toybox.Timer;
+import Toybox.WatchUi;
+
+// Sitting still before the measurement, then the measurement itself.
+const SETTLE_SECONDS = 60;
+const MEASURE_SECONDS = 300;
+
+const PHASE_READY = 0;
+const PHASE_SETTLING = 1;
+const PHASE_MEASURING = 2;
+const PHASE_DONE = 3;
+
+// Every FIT record carries the newest WINDOW beat intervals plus the number
+// of the newest beat. The watch writes records on its own schedule, so a
+// beat can appear in several records and a record can be skipped; the
+// numbering lets a reader place each beat exactly once. 16 beats cover at
+// least 4.8 s even at 200 bpm.
+const WINDOW = 16;
+const RR_INVALID = 0xFFFF;
+
+// FIT developer field ids. Never renumber: old files keep the old meaning.
+const FIELD_RR = 0;
+const FIELD_RR_BEAT = 1;
+const FIELD_LAST_BEAT = 2;
+const FIELD_RMSSD = 3;
+const FIELD_SDNN = 4;
+const FIELD_MEAN_HR = 5;
+const FIELD_BEATS = 6;
+const FIELD_ARTIFACTS = 7;
+
+// One HRV test: a settling lap, a measurement lap, and the beat intervals
+// from both written into the activity's FIT file.
+class BeatTest {
+
+    var phase = PHASE_READY;
+    var heartRate = null;   // from the once-a-second sensor events
+    var lastRr = null;      // newest beat interval, recording or not
+    var stats = null;       // measurement lap only
+
+    hidden var _session = null;
+    hidden var _timer = null;
+    hidden var _phaseStart = 0;
+    hidden var _window = null;
+    hidden var _beat = 0;   // beats since the recording started
+
+    hidden var _rrField = null;
+    hidden var _rrBeatField = null;
+    hidden var _lastBeatField = null;
+    hidden var _rmssdField = null;
+    hidden var _sdnnField = null;
+    hidden var _meanHrField = null;
+    hidden var _beatsField = null;
+    hidden var _artifactsField = null;
+
+    function initialize() {
+        stats = new RrStats();
+    }
+
+    // SENSOR_HEARTRATE turns on a paired strap; beat intervals then come
+    // from whichever heart rate source the watch is using.
+    function startSensors() {
+        Sensor.setEnabledSensors([ Sensor.SENSOR_HEARTRATE ]);
+        Sensor.enableSensorEvents(method(:onSensor));
+        Sensor.registerSensorDataListener(method(:onSensorData), {
+            :period => 1,
+            :heartBeatIntervals => { :enabled => true }
+        });
+    }
+
+    function stopSensors() {
+        Sensor.unregisterSensorDataListener();
+        Sensor.enableSensorEvents(null);
+    }
+
+    function onSensor(info as Sensor.Info) as Void {
+        heartRate = info.heartRate;
+        WatchUi.requestUpdate();
+    }
+
+    function onSensorData(data as Sensor.SensorData) as Void {
+        var hr = data.heartRateData;
+        if (hr == null || hr.heartBeatIntervals == null) {
+            return;
+        }
+        var intervals = hr.heartBeatIntervals;
+        for (var i = 0; i < intervals.size(); i++) {
+            addBeat(intervals[i]);
+        }
+        if (_session != null && intervals.size() > 0) {
+            _rrField.setData(_window);
+            _rrBeatField.setData(_beat);
+        }
+        WatchUi.requestUpdate();
+    }
+
+    hidden function addBeat(rr) {
+        lastRr = rr;
+        if (_session == null) {
+            return;
+        }
+        _beat++;
+        for (var i = 0; i < WINDOW - 1; i++) {
+            _window[i] = _window[i + 1];
+        }
+        _window[WINDOW - 1] = rr < RR_INVALID ? rr : RR_INVALID - 1;
+        if (phase == PHASE_MEASURING) {
+            stats.add(rr);
+        }
+    }
+
+    function start() {
+        if (!(Toybox has :ActivityRecording) || _session != null) {
+            return;
+        }
+        _session = ActivityRecording.createSession({
+            :name => "HRV",
+            :sport => Activity.SPORT_GENERIC
+        });
+        _rrField = _session.createField("rr", FIELD_RR, FitContributor.DATA_TYPE_UINT16,
+            { :count => WINDOW, :mesgType => FitContributor.MESG_TYPE_RECORD, :units => "ms" });
+        _rrBeatField = _session.createField("rr_beat", FIELD_RR_BEAT, FitContributor.DATA_TYPE_UINT32,
+            { :mesgType => FitContributor.MESG_TYPE_RECORD });
+        _lastBeatField = _session.createField("last_beat", FIELD_LAST_BEAT, FitContributor.DATA_TYPE_UINT32,
+            { :mesgType => FitContributor.MESG_TYPE_LAP });
+        _rmssdField = _session.createField("rmssd", FIELD_RMSSD, FitContributor.DATA_TYPE_FLOAT,
+            { :mesgType => FitContributor.MESG_TYPE_SESSION, :units => "ms" });
+        _sdnnField = _session.createField("sdnn", FIELD_SDNN, FitContributor.DATA_TYPE_FLOAT,
+            { :mesgType => FitContributor.MESG_TYPE_SESSION, :units => "ms" });
+        _meanHrField = _session.createField("mean_hr", FIELD_MEAN_HR, FitContributor.DATA_TYPE_FLOAT,
+            { :mesgType => FitContributor.MESG_TYPE_SESSION, :units => "bpm" });
+        _beatsField = _session.createField("beats", FIELD_BEATS, FitContributor.DATA_TYPE_UINT16,
+            { :mesgType => FitContributor.MESG_TYPE_SESSION });
+        _artifactsField = _session.createField("artifacts", FIELD_ARTIFACTS, FitContributor.DATA_TYPE_UINT16,
+            { :mesgType => FitContributor.MESG_TYPE_SESSION });
+
+        _window = new [WINDOW];
+        for (var i = 0; i < WINDOW; i++) {
+            _window[i] = RR_INVALID;
+        }
+        _beat = 0;
+        stats = new RrStats();
+        _rrField.setData(_window);
+        _rrBeatField.setData(0);
+
+        _session.start();
+        enterPhase(PHASE_SETTLING);
+        _timer = new Timer.Timer();
+        _timer.start(method(:onTick), 1000, true);
+    }
+
+    function onTick() as Void {
+        if (remaining() == 0) {
+            if (phase == PHASE_SETTLING) {
+                beginMeasuring();
+            } else if (phase == PHASE_MEASURING) {
+                finish();
+            }
+        }
+        WatchUi.requestUpdate();
+    }
+
+    // Seconds left in the settling or measuring phase.
+    function remaining() {
+        var length = phase == PHASE_SETTLING ? SETTLE_SECONDS : MEASURE_SECONDS;
+        var left = length - (System.getTimer() - _phaseStart) / 1000;
+        return left > 0 ? left : 0;
+    }
+
+    // Closes the settling lap; the measurement is the second lap. Each lap
+    // records the number of its last beat so a reader can split the beats.
+    function beginMeasuring() {
+        if (phase != PHASE_SETTLING) {
+            return;
+        }
+        _lastBeatField.setData(_beat);
+        _session.addLap();
+        enterPhase(PHASE_MEASURING);
+        vibrate();
+    }
+
+    function finish() {
+        if (_session == null) {
+            return;
+        }
+        stopTimer();
+        _lastBeatField.setData(_beat);
+        setIfKnown(_rmssdField, stats.rmssd());
+        setIfKnown(_sdnnField, stats.sdnn());
+        setIfKnown(_meanHrField, stats.meanHr());
+        _beatsField.setData(stats.count);
+        _artifactsField.setData(stats.artifacts);
+        _session.stop();
+        _session.save();
+        _session = null;
+        enterPhase(PHASE_DONE);
+        vibrate();
+    }
+
+    function discard() {
+        if (_session == null) {
+            return;
+        }
+        stopTimer();
+        _session.stop();
+        _session.discard();
+        _session = null;
+        phase = PHASE_READY;
+    }
+
+    // From the results screen back to ready for another test.
+    function reset() {
+        phase = PHASE_READY;
+    }
+
+    hidden function enterPhase(p) {
+        phase = p;
+        _phaseStart = System.getTimer();
+    }
+
+    hidden function stopTimer() {
+        if (_timer != null) {
+            _timer.stop();
+            _timer = null;
+        }
+    }
+
+    hidden function setIfKnown(field, value) {
+        if (value != null) {
+            field.setData(value);
+        }
+    }
+
+    hidden function vibrate() {
+        if (Attention has :vibrate) {
+            Attention.vibrate([ new Attention.VibeProfile(75, 400) ]);
+        }
+    }
+}
