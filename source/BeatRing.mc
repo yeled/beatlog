@@ -7,8 +7,9 @@ import Toybox.System;
 const RING_POINTS = 1000;
 const RING_TRACK = 0x2A2A2A;
 const RING_INSET = 18;
-const RING_PX_PER_MS = 0.2;
+const RING_PX_PER_MS = 0.1;  // so +-140 ms fits in RING_SWING px
 const RING_SWING = 14;
+const RING_AVG = 30;         // beats in the average a beat is drawn against
 
 // What each point is, as bits.
 const RING_ARTIFACT = 1;
@@ -18,10 +19,11 @@ const RING_MOVING = 4;   // the wrist was moving
 // The measurement drawn around the edge of the screen. Each beat sits at the
 // angle of its moment in the measurement, clockwise from 12 o'clock, so the
 // ring closes when the timer runs out. Its distance from the track shows its
-// interval against the settling minute's average (slower beats further out),
-// so breathing shows up as waves. Artifacts are grey dots on the track,
-// beats recorded while moving are yellow, and beats the sensor dropped
-// leave a hole.
+// interval against the average of the RING_AVG beats before it (slower
+// beats further out), so breathing shows up as waves and a slow drift in
+// heart rate doesn't push the line off the scale. Artifacts are grey dots
+// on the track, beats recorded while moving are yellow, beats the sensor
+// dropped leave a hole, and a beat with a hole either side is a dot.
 //
 // A beat's position is worked out once, when it arrives. The watch, unlike
 // the simulator, kills an app whose onUpdate runs too long, and redoing the
@@ -29,7 +31,6 @@ const RING_MOVING = 4;   // the wrist was moving
 class BeatRing {
 
     var closed = false;     // the measurement ran its full time
-    var reference = null;   // ms; set before the first beat, or the first good beat
 
     hidden var _span;       // the measurement's length in ms
     hidden var _cx;
@@ -41,6 +42,10 @@ class BeatRing {
     hidden var _n = 0;
     hidden var _elapsed = 0;
     hidden var _break = false;
+    hidden var _recent;     // the latest good beats, oldest overwritten first
+    hidden var _recentN = 0;
+    hidden var _recentAt = 0;
+    hidden var _recentSum = 0;
 
     function initialize(span) {
         var settings = System.getDeviceSettings();
@@ -51,6 +56,12 @@ class BeatRing {
         _x = new [RING_POINTS];
         _y = new [RING_POINTS];
         _kind = new [RING_POINTS]b;
+        _recent = new [RING_AVG];
+    }
+
+    // A good beat from settling: it starts the average off.
+    function settle(rr) {
+        remember(rr);
     }
 
     function add(rr, good, moving) {
@@ -65,10 +76,7 @@ class BeatRing {
         var r = _base;
         var kind = 0;
         if (good) {
-            if (reference == null) {
-                reference = rr;
-            }
-            var swing = (rr - reference) * RING_PX_PER_MS;
+            var swing = _recentN > 0 ? (rr - _recentSum.toFloat() / _recentN) * RING_PX_PER_MS : 0;
             if (swing > RING_SWING) {
                 swing = RING_SWING;
             } else if (swing < -RING_SWING) {
@@ -78,6 +86,7 @@ class BeatRing {
             if (moving) {
                 kind |= RING_MOVING;
             }
+            remember(rr);
         } else {
             kind = RING_ARTIFACT;
         }
@@ -89,6 +98,17 @@ class BeatRing {
         _y[_n] = _cy - r * Math.cos(a);
         _kind[_n] = kind;
         _n++;
+    }
+
+    hidden function remember(rr) {
+        if (_recentN == RING_AVG) {
+            _recentSum -= _recent[_recentAt];
+        } else {
+            _recentN++;
+        }
+        _recent[_recentAt] = rr;
+        _recentSum += rr;
+        _recentAt = (_recentAt + 1) % RING_AVG;
     }
 
     // ms of beats the sensor dropped: time passes, nothing is drawn.
@@ -116,13 +136,18 @@ class BeatRing {
                 dc.setColor(GREY, Graphics.COLOR_TRANSPARENT);
                 color = GREY;
                 dc.fillCircle(_x[i], _y[i], 3);
-            } else if (i > 0 && (kind & RING_BREAK) == 0 && (_kind[i - 1] & RING_ARTIFACT) == 0) {
+            } else {
                 var want = (kind & RING_MOVING) != 0 ? Graphics.COLOR_YELLOW : Graphics.COLOR_RED;
                 if (want != color) {
                     dc.setColor(want, Graphics.COLOR_TRANSPARENT);
                     color = want;
                 }
-                dc.drawLine(_x[i - 1], _y[i - 1], _x[i], _y[i]);
+                if (i > 0 && (kind & RING_BREAK) == 0 && (_kind[i - 1] & RING_ARTIFACT) == 0) {
+                    dc.drawLine(_x[i - 1], _y[i - 1], _x[i], _y[i]);
+                } else if (i == _n - 1 || (_kind[i + 1] & (RING_BREAK | RING_ARTIFACT)) != 0) {
+                    // No line in or out
+                    dc.fillCircle(_x[i], _y[i], 2);
+                }
             }
         }
         var last = _n - 1;

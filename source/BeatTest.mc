@@ -89,8 +89,6 @@ class BeatTest {
     hidden var _phaseStart = 0;
     hidden var _window = null;
     hidden var _beat = 0;   // beats since the recording started
-    hidden var _settleSum = 0;   // the ring's reference: settling's average beat
-    hidden var _settleCount = 0;
     hidden var _lastBatchAt = null;  // System.getTimer() of the last batch with beats
     hidden var _lastCallAt = null;   // ... and of the last callback, with beats or not
     hidden var _endLo = null;        // when the newest beat could have ended, as
@@ -275,8 +273,7 @@ class BeatTest {
         if (phase == PHASE_MEASURING) {
             ring.add(rr, stats.add(rr), moved);
         } else if (rr >= 300 && rr <= 2000) {
-            _settleSum += rr;
-            _settleCount++;
+            ring.settle(rr);
         }
     }
 
@@ -328,8 +325,6 @@ class BeatTest {
         _beat = 0;
         stats = new RrStats();
         ring = new BeatRing(measureSeconds * 1000);
-        _settleSum = 0;
-        _settleCount = 0;
         _gapTotal = 0;
         _shortTotal = 0;
         gaps = 0;
@@ -373,9 +368,6 @@ class BeatTest {
         }
         setLapFields();
         _session.addLap();
-        if (_settleCount > 0) {
-            ring.reference = _settleSum / _settleCount;
-        }
         enterPhase(PHASE_MEASURING);
         vibrate();
     }
